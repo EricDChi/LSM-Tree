@@ -1,12 +1,12 @@
 
 LINK.o = $(LINK.cc)
-CXXFLAGS = -std=c++14 -Wall
+CXXFLAGS = -std=c++20 -Wall
 
 all: correctness persistence
 
-correctness: kvstore.o correctness.o
+correctness: bloomfilter.o memtable.o skiplist.o sstable.o kvstore.o correctness.o
 
-persistence: kvstore.o persistence.o
+persistence: bloomfilter.o memtable.o skiplist.o sstable.o kvstore.o persistence.o
 
 clean:
 	-rm -f correctness persistence *.o

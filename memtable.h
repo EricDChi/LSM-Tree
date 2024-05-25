@@ -12,6 +12,10 @@ private:
     size_t size;
 
 public:
+    MemTable();
+
+    ~MemTable();
+    
     void put(uint64_t key, const std::string &s);
 
     bool check(uint64_t key);

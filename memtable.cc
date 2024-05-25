@@ -2,6 +2,7 @@
 
 MemTable::MemTable() {
     skiplist = new SkipList(0.5);
+    size = header_size + bloomfilter_size;
 }
 
 MemTable::~MemTable() {
@@ -26,6 +27,7 @@ void MemTable::get_data(std::vector<std::pair<uint64_t, std::string>> &data) {
 }
 
 void MemTable::reset() {
+    size = header_size + bloomfilter_size;
     this->skiplist->clear();
 }
 

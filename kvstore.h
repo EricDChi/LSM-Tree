@@ -1,21 +1,26 @@
 #pragma once
 
-#include <algorithm>
-#include "memtable.h"
+#include <chrono>
+
 #include "kvstore_api.h"
+#include "skiplist.h"
 #include "sstable.h"
+#include "memtable.h"
+#include "unordered_map"
 
 class KVStore : public KVStoreAPI
 {
 	// You can add your implementation here
 private:
 	MemTable *memtable;
-	int max_SST_timeStamp;
+	uint64_t max_stamp;
 	std::string dir;
-	std::vector<std::pair<uint64_t, SStable*>> sst_vector;
+	std::string vlog;
+	std::vector<std::vector<SStable *>> sstables;
+	uint64_t head, tail;
 
 public:
-	KVStore(const std::string &dir);
+	KVStore(const std::string &dir, const std::string &vlog);
 
 	~KVStore();
 
@@ -29,7 +34,11 @@ public:
 
 	void scan(uint64_t key1, uint64_t key2, std::list<std::pair<uint64_t, std::string>> &list) override;
 
-	void read_SSTFile(std::string path);
-
 	void gc(uint64_t chunk_size) override;
+
+	void read_sstables(std::string dir);
+
+	void compaction(uint32_t level);
+
+	uint64_t get_offset(uint64_t key);
 };

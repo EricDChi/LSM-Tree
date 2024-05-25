@@ -1,12 +1,27 @@
 #include "skiplist.h"
 #include <optional>
 
+SkipList::SkipList() {
+    header = new Node(-1, "", max_level);
+    level = 0;
+    p = 0.5;
+}
+
 SkipList::SkipList(double p) {
-    header = new Node(0, "", max_level);
+    header = new Node(-1, "", max_level);
     level = 0;
     this->p = p;
 }
 
+SkipList::~SkipList() {
+    Node *current = header->next[0];
+    while (current != nullptr) {
+        Node *temp = current;
+        current = current->next[0];
+        delete temp;
+    }
+    delete header;
+}
 
 void SkipList::put(key_type key, const value_type &val) {
     Node *current = header;
@@ -123,7 +138,7 @@ uint64_t SkipList::randomlevel() {
 }
 
 void SkipList::get_data(std::vector<std::pair<uint64_t, std::string>> &data) {
-    Node* node = header;
+    Node* node = header->next[0];
     while (node != nullptr) {
         data.push_back({node->get_key(), node->get_value()});
         node = node->next[0];
@@ -131,7 +146,7 @@ void SkipList::get_data(std::vector<std::pair<uint64_t, std::string>> &data) {
 }
 
 void SkipList::scan(uint64_t key1, uint64_t key2, std::list<std::pair<uint64_t, std::string>> &list) {
-    Node* node = header;
+    Node* node = header->next[0];
     uint64_t key;
     std::string val;
     while (node != nullptr) {

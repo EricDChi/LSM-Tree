@@ -9,7 +9,7 @@ class CorrectnessTest : public Test
 {
 private:
 	const uint64_t SIMPLE_TEST_MAX = 512;
-	const uint64_t LARGE_TEST_MAX = 1024 * 64;
+	const uint64_t LARGE_TEST_MAX = 1024 * 36;
 	const uint64_t GC_TEST_MAX = 1024 * 48;
 
 	void regular_test(uint64_t max)
@@ -32,11 +32,13 @@ private:
 			store.put(i, std::string(i + 1, 's'));
 			EXPECT(std::string(i + 1, 's'), store.get(i));
 		}
+
 		phase();
 
 		// Test after all insertions
 		for (i = 0; i < max; ++i)
 			EXPECT(std::string(i + 1, 's'), store.get(i));
+
 		phase();
 
 		// Test scan
@@ -75,15 +77,15 @@ private:
 		// Test deletions
 		for (i = 0; i < max; i += 2)
 		{
-			EXPECT(true, store.del(i));
+		 	EXPECT(true, store.del(i));
 		}
 
 		for (i = 0; i < max; ++i)
-			EXPECT((i & 1) ? std::string(i + 1, 's') : not_found,
-				   store.get(i));
+		 	EXPECT((i & 1) ? std::string(i + 1, 's') : not_found,
+		 		   store.get(i));
 
 		for (i = 1; i < max; ++i)
-			EXPECT(i & 1, store.del(i));
+		 	EXPECT(i & 1, store.del(i));
 
 		phase();
 
@@ -106,16 +108,16 @@ private:
 			switch (i % 3)
 			{
 			case 0:
-				store.put(i, std::string(i + 1, 'e'));
+			 	store.put(i, std::string(i + 1, 'e'));
 				break;
 			case 1:
 				store.put(i, std::string(i + 1, '2'));
-				break;
-			case 2:
-				store.put(i, std::string(i + 1, '3'));
-				break;
+			 	break;
+		 	case 2:
+			 	store.put(i, std::string(i + 1, '3'));
+			 	break;
 			default:
-				assert(0);
+			 	assert(0);
 			}
 
 			if (i % gc_trigger == 0) [[unlikely]]

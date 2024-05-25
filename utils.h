@@ -199,4 +199,83 @@ namespace utils
         }
         return crc;
     }
+
+    static inline void merge(std::vector<std::tuple<uint64_t, uint64_t, uint32_t>>& vec, int left, int mid, int right) {
+        std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> temp(right - left + 1);
+
+        int i = left;       // Initial index for left subarray
+        int j = mid + 1;    // Initial index for right subarray
+        int k = 0;          // Initial index to store merged array
+
+        // Conditions are checked to ensure that i doesn't exceed mid and j doesn't exceed right
+        while (i <= mid && j <= right) {
+            if (std::get<0>(vec[i]) <= std::get<0>(vec[j])) {
+                temp[k] = vec[i];
+                i++;
+            } else {
+                temp[k] = vec[j];
+                j++;
+            }
+            k++;
+        }
+
+        // Copy the remaining elements of left subarray, if any
+        while (i <= mid) {
+            temp[k] = vec[i];
+            i++;
+            k++;
+        }
+
+        // Copy the remaining elements of right subarray, if any
+        while (j <= right) {
+            temp[k] = vec[j];
+            j++;
+            k++;
+        }
+
+        // Copy the merged elements back into the original vector
+        for (i = left, k = 0; i <= right; i++, k++) {
+            vec[i] = temp[k];
+        }
+    }
+
+    static inline void mergeSort(std::vector<std::tuple<uint64_t, uint64_t, uint32_t>>& vec, int left, int right) {
+        if (left < right) {
+            // Find the midpoint of the vector
+            int mid = left + (right - left) / 2;
+
+            // Recursively sort the two halves
+            mergeSort(vec, left, mid);
+            mergeSort(vec, mid + 1, right);
+
+            // Merge the sorted halves
+            merge(vec, left, mid, right);
+        }
+    }
+
+    static inline bool check_key(const std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> &tuples, uint64_t key)
+    {
+	    int left = 0;
+	    int right = tuples.size() - 1;
+	    while (left <= right) {
+		    int mid = left + (right - left) / 2;
+		    if (std::get<0>(tuples.at(mid)) == key) {
+			    return true;
+		    }
+		    else if (std::get<0>(tuples.at(mid)) < key) {
+			    left = mid + 1;
+		    }
+		    else {
+			    right = mid - 1;
+		    }
+	    }
+	    return false;
+    }
+
+    static inline void sort_tuples(std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> &tuples)
+    {
+	    if (!tuples.empty()) {
+            mergeSort(tuples, 0, tuples.size() - 1);
+        }
+    }
 }
