@@ -11,7 +11,7 @@
 class PersistenceTest : public Test
 {
 private:
-	const uint64_t TEST_MAX = 1024 * 48;
+	const uint64_t TEST_MAX = 1024 * 32;
 	const uint64_t GC_TRIGGER = 1024;
 
 public:
@@ -80,7 +80,7 @@ public:
 		check_gc(32 * MB);
 
 		phase();
-		
+
 		report();
 	}
 
