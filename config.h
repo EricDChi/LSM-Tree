@@ -6,6 +6,8 @@
 
 #define header_size 32
 
-#define bloomfilter_size 8192
+#define bloomfilter_size 1 * 1024
+
+#define batch_size (max_sst_size - header_size - bloomfilter_size) / 20
 
 #define vlog_entry_header_size 15

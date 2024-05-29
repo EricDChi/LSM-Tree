@@ -200,8 +200,8 @@ namespace utils
         return crc;
     }
 
-    static inline void merge(std::vector<std::tuple<uint64_t, off64_t, uint32_t>>& vec, int left, int mid, int right) {
-        std::vector<std::tuple<uint64_t, off64_t, uint32_t>> temp(right - left + 1);
+    static inline void merge(std::vector<std::tuple<uint64_t, uint64_t, uint32_t>>& vec, int left, int mid, int right) {
+        std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> temp(right - left + 1);
 
         int i = left;       // Initial index for left subarray
         int j = mid + 1;    // Initial index for right subarray
@@ -239,7 +239,7 @@ namespace utils
         }
     }
 
-    static inline void mergeSort(std::vector<std::tuple<uint64_t, off64_t, uint32_t>>& vec, int left, int right) {
+    static inline void mergeSort(std::vector<std::tuple<uint64_t, uint64_t, uint32_t>>& vec, int left, int right) {
         if (left < right) {
             // Find the midpoint of the vector
             int mid = left + (right - left) / 2;
@@ -253,7 +253,7 @@ namespace utils
         }
     }
 
-    static inline bool check_key(std::vector<std::tuple<uint64_t, off64_t, uint32_t>> &tuples, uint64_t key)
+    static inline bool check_key(const std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> &tuples, uint64_t key)
     {
 	    int left = 0;
 	    int right = tuples.size() - 1;
@@ -272,7 +272,7 @@ namespace utils
 	    return false;
     }
 
-    static inline void sort_tuples(std::vector<std::tuple<uint64_t, off64_t, uint32_t>> &tuples)
+    static inline void sort_tuples(std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> &tuples)
     {
 	    if (!tuples.empty()) {
             mergeSort(tuples, 0, tuples.size() - 1);

@@ -2,16 +2,16 @@
 #include "utils.h"
 #include <fstream>
 
-SStable::SStable(uint64_t SST_timeStamp, std::string path, std::string vlog, std::vector<std::pair<uint64_t, std::string>> &vector) {
+SStable::SStable(uint64_t SST_timeStamp, std::string filePath, std::string vlog, std::vector<std::pair<uint64_t, std::string>> &vector) {
     bloomfilter = new BloomFilter(bloomfilter_size * 8, 4);
     uint64_t key;
     std::string val;
-    off64_t offset;
+    uint64_t offset;
     uint32_t vlen;
     stamp = SST_timeStamp;
     key_num = vector.size();
     min_key = max_key = vector.back().first;
-    path = path;
+    path = filePath;
 
     std::fstream sst_file(path, std::ios::out|std::ios::binary);
 
@@ -35,6 +35,7 @@ SStable::SStable(uint64_t SST_timeStamp, std::string path, std::string vlog, std
                 tuples.push_back(tuple);
                 continue;
             }
+
             put_vlog(vlog, key, vlen, val, offset);
             
             sst_file.write(reinterpret_cast<char*>(&key), sizeof(key));
@@ -54,16 +55,16 @@ SStable::SStable(uint64_t SST_timeStamp, std::string path, std::string vlog, std
     }
 }
 
-SStable::SStable(uint64_t SST_timeStamp, std::string path, std::vector<std::tuple<uint64_t, off64_t, uint32_t>> tuples) {
+SStable::SStable(uint64_t SST_timeStamp, std::string filePath, std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> tmp_tuples) {
     bloomfilter = new BloomFilter(bloomfilter_size * 8, 4);
     uint64_t key;
-    off64_t offset;
+    uint64_t offset;
     uint32_t vlen;
     stamp = SST_timeStamp;
     key_num = tuples.size();
+    tuples = tmp_tuples;
     min_key = max_key = std::get<0>(tuples.back());
-    path = path;
-    tuples = tuples;
+    path = filePath;
 
     std::fstream sst_file(path, std::ios::out|std::ios::binary);
 
@@ -95,9 +96,10 @@ SStable::SStable(uint64_t SST_timeStamp, std::string path, std::vector<std::tupl
 
 SStable::SStable(std::string fullPath){
     uint64_t key;
-    off64_t offset;
+    uint64_t offset;
     uint32_t vlen;
     bool *bit = new bool[bloomfilter_size * 8];
+    path = fullPath;
     std::ifstream infile(fullPath, std::ios::binary);
 
     if (infile) {
@@ -142,7 +144,7 @@ SStable::~SStable() {
     tuples.clear();
 }
 
-void SStable::put_vlog(std::string vlog, uint64_t key, uint32_t vlen, std::string &s, off64_t &offset) {
+void SStable::put_vlog(std::string vlog, uint64_t key, uint32_t vlen, std::string &s, uint64_t &offset) {
     uint16_t Checksum;
     std::string data;
 
@@ -164,10 +166,29 @@ void SStable::put_vlog(std::string vlog, uint64_t key, uint32_t vlen, std::strin
 }
 
 std::string SStable::get(uint64_t key, std::string vlog) {
-    std::tuple <uint64_t, off64_t, uint32_t> tuple = get_tuple(key);
+    std::tuple <uint64_t, uint64_t, uint32_t> tuple = get_tuple(key);
     if (tuple != std::make_tuple(0, 0, 0)) {
         std::fstream infile(vlog, std::ios::in | std::ios::binary);
-        off64_t offset = std::get<1>(tuple);
+        uint64_t offset = std::get<1>(tuple);
+        uint32_t vlen = std::get<2>(tuple);
+        if (vlen == 0) return "~DELETE~";
+        std::vector<char> buffer(vlen);
+        if (infile) {
+            infile.seekg(offset);
+            infile.read(buffer.data(), vlen);
+            infile.close();
+        }
+        std::string val(buffer.begin(), buffer.end());
+        return val;
+    }
+    return "";
+}
+
+std::string SStable::get_without_bloomfilter(uint64_t key, std::string vlog) {
+    std::tuple <uint64_t, uint64_t, uint32_t> tuple = get_tuple(key);
+    if (tuple != std::make_tuple(0, 0, 0)) {
+        std::fstream infile(vlog, std::ios::in | std::ios::binary);
+        uint64_t offset = std::get<1>(tuple);
         uint32_t vlen = std::get<2>(tuple);
         if (vlen == 0) return "~DELETE~";
         std::vector<char> buffer(vlen);
@@ -196,7 +217,7 @@ void SStable::scan(std::string vlog, uint64_t key1, uint64_t key2, std::list<std
             }
             if (!keyExists) {
                 std::fstream infile(vlog, std::ios::in | std::ios::binary);
-                off64_t offset = std::get<1>(tuple);
+                uint64_t offset = std::get<1>(tuple);
                 uint32_t vlen = std::get<2>(tuple);
                 std::vector<char> buffer(vlen);
                 if (infile) {
@@ -211,15 +232,15 @@ void SStable::scan(std::string vlog, uint64_t key1, uint64_t key2, std::list<std
     }
 }
 
-off64_t SStable::get_offset(uint64_t key) {
-    std::tuple <uint64_t, off64_t, uint32_t> tuple = get_tuple(key);
+uint64_t SStable::get_offset(uint64_t key) {
+    std::tuple <uint64_t, uint64_t, uint32_t> tuple = get_tuple(key);
     if (tuple != std::make_tuple(0, 0, 0)) {
         return std::get<1>(tuple);
     }
-    return -1;
+    return 0;
 }
 
-std::tuple<uint64_t, off64_t, uint32_t> SStable::get_tuple(uint64_t key) {
+std::tuple<uint64_t, uint64_t, uint32_t> SStable::get_tuple(uint64_t key) {
     if (!bloomfilter->check(key)) {
         return std::make_tuple(0, 0, 0);
     }
@@ -227,6 +248,23 @@ std::tuple<uint64_t, off64_t, uint32_t> SStable::get_tuple(uint64_t key) {
         return std::make_tuple(0, 0, 0);
     }
 
+    int left = 0;
+    int right = tuples.size() - 1;
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        if (std::get<0>(tuples[mid]) == key) {
+            return tuples[mid];
+        }
+        if (std::get<0>(tuples[mid]) < key) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+    return std::make_tuple(0, 0, 0);
+}
+
+std::tuple<uint64_t, uint64_t, uint32_t> SStable::get_tuple_without_bloomfilter(uint64_t key) {
     int left = 0;
     int right = tuples.size() - 1;
     while (left <= right) {

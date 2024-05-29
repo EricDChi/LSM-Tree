@@ -8,5 +8,7 @@ correctness: bloomfilter.o memtable.o skiplist.o sstable.o kvstore.o correctness
 
 persistence: bloomfilter.o memtable.o skiplist.o sstable.o kvstore.o persistence.o
 
+performance: bloomfilter.o memtable.o skiplist.o sstable.o kvstore.o performance.o
+
 clean:
 	-rm -f correctness persistence *.o

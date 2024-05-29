@@ -6,6 +6,7 @@
 #include "skiplist.h"
 #include "sstable.h"
 #include "memtable.h"
+#include "unordered_map"
 
 class KVStore : public KVStoreAPI
 {
@@ -16,7 +17,7 @@ private:
 	std::string dir;
 	std::string vlog;
 	std::vector<std::vector<SStable *>> sstables;
-	off64_t head, tail;
+	uint64_t head, tail;
 
 public:
 	KVStore(const std::string &dir, const std::string &vlog);
@@ -26,6 +27,10 @@ public:
 	void put(uint64_t key, const std::string &s) override;
 
 	std::string get(uint64_t key) override;
+
+	std::string get_without_bloomfilter(uint64_t key);
+
+	std::string get_without_cache(uint64_t key);
 
 	bool del(uint64_t key) override;
 
@@ -39,5 +44,5 @@ public:
 
 	void compaction(uint32_t level);
 
-	off64_t get_offset(uint64_t key);
+	uint64_t get_offset(uint64_t key);
 };

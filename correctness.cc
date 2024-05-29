@@ -9,7 +9,7 @@ class CorrectnessTest : public Test
 {
 private:
 	const uint64_t SIMPLE_TEST_MAX = 512;
-	const uint64_t LARGE_TEST_MAX = 1024 * 8;
+	const uint64_t LARGE_TEST_MAX = 1024 * 64;
 	const uint64_t GC_TEST_MAX = 1024 * 48;
 
 	void regular_test(uint64_t max)
@@ -106,16 +106,16 @@ private:
 			switch (i % 3)
 			{
 			case 0:
-			 	store.put(i, std::string(i + 1, 'e'));
+				store.put(i, std::string(i + 1, 'e'));
 				break;
 			case 1:
 				store.put(i, std::string(i + 1, '2'));
-			 	break;
-		 	case 2:
-			 	store.put(i, std::string(i + 1, '3'));
-			 	break;
+				break;
+			case 2:
+				store.put(i, std::string(i + 1, '3'));
+				break;
 			default:
-			 	assert(0);
+				assert(0);
 			}
 
 			if (i % gc_trigger == 0) [[unlikely]]

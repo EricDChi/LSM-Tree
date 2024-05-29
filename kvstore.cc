@@ -67,18 +67,21 @@ KVStore::~KVStore()
 	}	
 
 	if (!data.empty()) {
-		std::string new_filePath = dir + "/level-0/" + std::to_string(max_stamp) + ".sst";
+		std::string new_filePath = dir + "/level-0/" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".sst";
 		SStable *sstable = new SStable(max_stamp, new_filePath, vlog, data);
 		sstables[0].push_back(sstable);
+		compaction(0);
 	}
 
 	this->memtable->reset();
 	delete this->memtable;
 	for (size_t i = 0; i < sstables.size(); i++) {
 		for (size_t j = 0; j < sstables.at(i).size(); j++) {
-	 		delete sstables.at(i).at(j);
+			SStable *tmp = sstables[i].at(j);
+			sstables[i].erase(sstables[i].begin() + j);
+			delete tmp;
 	 	}
-	 	this->sstables[i].clear();
+		this->sstables[i].clear();
 	}
 	this->sstables.clear();
 }
@@ -103,7 +106,7 @@ void KVStore::put(uint64_t key, const std::string &s)
     std::string new_filePath = dir + "/level-0/" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".sst";
 	SStable *sstable = new SStable(max_stamp, new_filePath, vlog, data);
 	sstables[0].push_back(sstable);
-	// compaction(0);
+	compaction(0);
 
 	max_stamp++;
     this->memtable->reset();
@@ -123,28 +126,83 @@ std::string KVStore::get(uint64_t key)
 		return val;
 	}
     
-	uint64_t stamp = 0;
-	std::string tmp_val;
 	for (size_t i = 0; i < sstables.size(); i++) {
-		for (size_t j = 0; j < sstables.at(i).size(); j++) {
-			if (stamp >= sstables.at(i).at(j)->get_stamp()) {
-				continue;
+		for (size_t j = sstables.at(i).size(); j > 0; j--) {
+			val = sstables.at(i).at(j - 1)->get(key, vlog);
+			if (val != "") {
+				if (val == "~DELETE~") {
+					return "";
+				}
+				return val;
 			}
-			tmp_val = sstables.at(i).at(j)->get(key, vlog);
-			if (tmp_val != "") {
-				val = tmp_val;
-				stamp = sstables.at(i).at(j)->get_stamp();
-			}
-		}
-		if (val != "") {
-			if (val == "~DELETE~") {
-				return "";
-			}
-			return val;
 		}
 	}
+	
 	return "";
 }
+
+std::string KVStore::get_without_bloomfilter(uint64_t key)
+{
+	std::string val = this->memtable->get(key);
+	if (val == "~DELETE~") {
+		return "";
+	}
+	else if (val != "") {
+		return val;
+	}
+	
+	for (size_t i = 0; i < sstables.size(); i++) {
+		for (size_t j = sstables.at(i).size(); j > 0; j--) {
+			val = sstables.at(i).at(j - 1)->get_without_bloomfilter(key, vlog);
+			if (val != "") {
+				if (val == "~DELETE~") {
+					return "";
+				}
+				return val;
+			}
+		}
+	}
+	
+	return "";
+}
+
+std::string KVStore::get_without_cache(uint64_t key)
+{
+	std::string val = this->memtable->get(key);
+	std::vector<std::string> vec_level, vec_sstable;
+	if (val == "~DELETE~") {
+		return "";
+	}
+	else if (val != "") {
+		return val;
+	}
+
+	scanDir(dir, vec_level);
+    for (size_t i = 0; i < vec_level.size(); i++) {
+		if (vec_level.at(i) == "vlog") {
+			continue;
+		}
+        
+		int level = std::stoi(vec_level.at(i).substr(6));
+        scanDir(dir + "/" + vec_level.at(i), vec_sstable);
+
+        for (size_t j = 0; j < vec_sstable.size(); j++) {
+            std::string path = dir + "/" + vec_level.at(i) + "/" + vec_sstable.at(j);
+            SStable* sst = new SStable(path);
+            val = sst->get(key, vlog);
+			delete sst;
+			if (val != "") {
+				if (val == "~DELETE~") {
+					return "";
+				}
+				return val;
+			}
+        }
+        vec_sstable.clear();
+    }
+	return "";
+}
+
 /**
  * Delete the given key-value pair if it exists.
  * Returns false iff the key is not found.
@@ -199,10 +257,16 @@ void KVStore::scan(uint64_t key1, uint64_t key2, std::list<std::pair<uint64_t, s
 {
 	this->memtable->scan(key1, key2, list);
 	for (size_t i = 0; i < sstables.size(); i++) {
+		std::sort(sstables.at(i).begin(), sstables.at(i).end(), [](SStable* a, SStable* b) { // Remove const qualifier from lambda function
+        	return a->get_stamp() < b->get_stamp();
+    	});
 		for (size_t j = 0; j < sstables.at(i).size(); j++) {
 			sstables.at(i).at(j)->scan(vlog, key1, key2, list);
 		}
 	}
+	list.sort([](const std::pair<uint64_t, std::string>& a, const std::pair<uint64_t, std::string>& b) {
+        return a.first < b.first;
+    });
 }
 
 /**
@@ -217,7 +281,7 @@ void KVStore::gc(uint64_t chunk_size)
 		return;
     }
 
-	off64_t startPosition = tail;
+	uint64_t startPosition = tail;
 	uint8_t byte;
 	uint8_t magic;
 	uint16_t checksum;
@@ -226,60 +290,60 @@ void KVStore::gc(uint64_t chunk_size)
 	std::string str;
 	head = file.tellg();
 
-	off64_t i = startPosition;
+	uint64_t i = startPosition;
     // Start from the end of the file and move backwards to find the last Magic byte
-    for (; i < head; i++) {
+	for (; i < head; i++) {
         file.seekg(i);
         file.read(reinterpret_cast<char*>(&byte), sizeof(byte));
 
         if (byte != 0xff) {  // Check if this is the Magic byte
-			continue;
-		}
+	 		continue;
+	 	}
             
-		// Attempt to read the rest of the entry from this position
+	 	// Attempt to read the rest of the entry from this position
         file.seekg(i);
         file.read(reinterpret_cast<char*>(&magic), sizeof(magic));
         file.read(reinterpret_cast<char*>(&checksum), sizeof(checksum));
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
         file.read(reinterpret_cast<char*>(&vlen), sizeof(vlen));
-		std::vector<char> buffer(vlen);
-		file.read(buffer.data(), vlen);
+	 	std::vector<char> buffer(vlen);
+	 	file.read(buffer.data(), vlen);
 
         // Check if the entry data can be fully read
         if (vlen > 0 && head - file.tellg() >= vlen) {
-            // Validate checksum
-			std::string val(buffer.begin(), buffer.end());
-			str = std::to_string(key) + val + std::to_string(vlen);
+             // Validate checksum
+	 		std::string val(buffer.begin(), buffer.end());
+	 		str = std::to_string(key) + val + std::to_string(vlen);
             uint16_t calculated_checksum = crc16(std::vector<unsigned char>(str.begin(), str.end()));
-			if (calculated_checksum != checksum) {
-				continue;
-			}
-                
+	 		if (calculated_checksum != checksum) {
+	 			continue;
+	 		}
+
 			if (this->get_offset(key) != 0 && this->get_offset(key) == i + vlog_entry_header_size) {
-				this->put(key, val);
-            }
-			i += (vlog_entry_header_size + vlen - 1);
-			if (i - startPosition >= (off64_t)chunk_size) {
-				tail = i + 1;
-				break;
-			}
+	 			this->put(key, val);
+	 		}
+	 		i += (vlog_entry_header_size + vlen - 1);
+	 		if (i - startPosition >= (uint64_t)chunk_size) {
+	 			tail = i + 1;
+	 			break;
+	 		}
         }
 	}
 
 	std::vector<std::pair<uint64_t, std::string>> data;
 	this->memtable->get_data(data);
 	if (data.empty()) {
-		de_alloc_file(vlog, startPosition, tail - startPosition);
-		return;
+	 	de_alloc_file(vlog, startPosition, tail - startPosition);
+	 	return;
 	}	
 
 	if (!dirExists(dir + "/level-0")) {
-	 	mkdir(dir + "/level-0");
+		mkdir(dir + "/level-0");
 	}
     std::string new_filePath = dir + "/level-0/" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".sst";
 	SStable *sstable = new SStable(max_stamp, new_filePath, vlog, data);
 	sstables[0].push_back(sstable);
-	// compaction(0);
+	compaction(0);
 
 	max_stamp++;
     this->memtable->reset();
@@ -291,29 +355,29 @@ void KVStore::read_sstables(std::string dir)
 {
 	std::vector<std::string> vec_level, vec_sstable;
     scanDir(dir, vec_level);
+	sstables.resize(vec_level.size());
     for (size_t i = 0; i < vec_level.size(); i++) {
 		if (vec_level.at(i) == "vlog") {
 			continue;
 		}
-        sstables.push_back(std::vector<SStable *>());
+        
+		int level = std::stoi(vec_level.at(i).substr(6));
         scanDir(dir + "/" + vec_level.at(i), vec_sstable);
-		
+
         for (size_t j = 0; j < vec_sstable.size(); j++) {
             std::string path = dir + "/" + vec_level.at(i) + "/" + vec_sstable.at(j);
-			SStable *sst = new SStable(path);
-            sstables[0].push_back(sst);
-			if (sst->get_stamp() > max_stamp) {
-				max_stamp = sst->get_stamp();
-			}
-			// compaction(0);
-        }
+            SStable* sst = new SStable(path);
+            sstables[level].push_back(sst);
 
-        // Clear vec_sstable for the next iteration
+            if (sst->get_stamp() > max_stamp) {
+                max_stamp = sst->get_stamp();
+            }
+        }
         vec_sstable.clear();
     }
 }
 
-off64_t KVStore::get_offset(uint64_t key)
+uint64_t KVStore::get_offset(uint64_t key)
 {
 	std::string val = this->memtable->get(key);
 	if (val == "~DELETE~") {
@@ -323,21 +387,13 @@ off64_t KVStore::get_offset(uint64_t key)
 		return 0;
 	}
     
-	uint64_t stamp = 0;
-	off64_t offset = -1, tmp_offset = -1;
+	uint64_t offset = 0;
 	for (size_t i = 0; i < sstables.size(); i++) {
 		for (size_t j = 0; j < sstables.at(i).size(); j++) {
-			if (stamp >= sstables.at(i).at(j)->get_stamp()) {
-				continue;
+			offset = sstables.at(i).at(j)->get_offset(key);
+			if (offset != 0) {
+				return offset;
 			}
-			tmp_offset = sstables.at(i).at(j)->get_offset(key);
-			if (tmp_offset != -1) {
-				offset = tmp_offset;
-				stamp = sstables.at(i).at(j)->get_stamp();
-			}
-		}
-		if (offset != -1) {
-			return offset;
 		}
 	}
 	return 0;
@@ -345,9 +401,88 @@ off64_t KVStore::get_offset(uint64_t key)
 
 void KVStore::compaction(uint32_t level)
 {
-	if (level >= sstables.size() || sstables[level].size() <= ((uint64_t)0x1 << (level + 1))) {
+	if (sstables[level].size() <= ((uint64_t)0x1 << (level + 1))) {
 		return;
 	}
+
+	std::vector<SStable *> vec;
+	std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> tuples, tmp_tuples;
+	uint64_t stamp = 0, tmp_stamp = 0;
+
+	std::sort(sstables[level].begin(), sstables[level].end(), [](SStable *a, SStable *b) {
+        return a->get_stamp() > b->get_stamp() || ((a->get_stamp() == b->get_stamp()) && (a->get_max_key() > b->get_max_key()));
+    });
+	if (level == 0) {
+	 	std::swap(vec, sstables[level]);
+	}
+	else {
+    	for (int i = sstables[level].size() - 1; i >= 0; i--) {
+        	SStable *tmp_sstable = sstables[level][i];
+        	vec.push_back(tmp_sstable);
+        	sstables[level].erase(sstables[level].begin() + i);
+        	if (sstables[level].size() <= ((uint64_t)0x1 << (level + 1))) {
+            	break;
+        	}
+    	}
+	}
+
+	uint64_t min_key = vec[0]->get_min_key();
+	uint64_t max_key = vec[0]->get_max_key(); 
+	for (size_t i = 0; i < vec.size(); i++) {
+	 	if (vec[i]->get_min_key() < min_key) {
+	 		min_key = vec[i]->get_min_key();
+	 	}
+	 	if (vec[i]->get_max_key() > max_key) {
+	 		max_key = vec[i]->get_max_key();
+	 	}
+	}
+
+	if (level + 1 < sstables.size()) { 
+		for (int i = sstables[level + 1].size() - 1; i >= 0; i--) {
+	 		SStable *tmp_sstable = sstables[level + 1].at(i);
+			if (tmp_sstable->get_max_key() < min_key || tmp_sstable->get_min_key() > max_key) {
+				continue;
+			}
+			vec.push_back(tmp_sstable);
+  	        sstables[level + 1].erase(sstables[level + 1].begin() + i);
+		}
+	}
+	
+	std::unordered_map<uint64_t, std::tuple<uint64_t, uint64_t, uint32_t>> mergedTuples;
+	std::unordered_map<uint64_t, uint64_t> mergedStamp;
+	for (auto& sstable : vec) {
+        tmp_tuples = sstable->get_tuples();
+        tmp_stamp = sstable->get_stamp();
+
+        for (auto& tmp_tuple : tmp_tuples) {
+            uint64_t tmp_key = std::get<0>(tmp_tuple);
+
+            if (mergedTuples.find(tmp_key) == mergedTuples.end() || mergedStamp[tmp_key] < tmp_stamp) {
+				mergedTuples[tmp_key] = tmp_tuple;
+				mergedStamp[tmp_key] = tmp_stamp;
+            }
+        }
+
+        if (tmp_stamp > stamp) {
+            stamp = tmp_stamp;
+        }
+    }
+
+	if (level == sstables.size() - 1) {
+    	for (auto it = mergedTuples.begin(); it != mergedTuples.end();) {
+        	if (std::get<2>(it->second) == 0) {
+            	it = mergedTuples.erase(it);
+        	} else {
+            	++it;
+        	}
+    	}
+	}
+
+    for (auto& pair : mergedTuples) {
+    	tuples.push_back(pair.second);
+    }
+	
+	sort_tuples(tuples);
 
 	if (level + 1 >= sstables.size()) {
 		sstables.push_back(std::vector<SStable *>());
@@ -356,81 +491,18 @@ void KVStore::compaction(uint32_t level)
 		mkdir(dir + "/level-" + std::to_string(level + 1));
 	}
 
-	uint64_t min_key = sstables[level].at(0)->get_min_key();
-	uint64_t max_key = sstables[level].at(0)->get_max_key(); 
-	std::vector<SStable *> vec, tmp_vec;
-	std::vector<std::tuple<uint64_t, off64_t, uint32_t>> tuples, tmp_tuples;
-	uint64_t stamp = 0, tmp_stamp = 0;
-
-	if (level == 0) {
-		for (size_t i = 0; i < sstables[level].size(); i++) {
-			SStable *tmp_sstable = sstables[level].at(i);
-			tmp_vec.push_back(tmp_sstable);
-			sstables[level].erase(sstables[level].begin() + i);
-		}
-	}
-	else {
-		std::sort(sstables[level].begin(), sstables[level].end(), [](SStable *a, SStable *b) {
-			return a->get_min_key() < b->get_min_key();
-		});
-		for (size_t i = 0; i < sstables[level].size(); i++) {
-			SStable *tmp_sstable = sstables[level].at(i);
-			tmp_vec.push_back(tmp_sstable);
-			sstables[level].erase(sstables[level].begin() + i);
-			if (sstables[level].size() <= ((uint64_t)0x1 << (level + 1))) {
-				break;
-			}
-		}
-	}
-
-	for (size_t i = 0; i < tmp_vec.size(); i++) {
-		if (tmp_vec.at(i)->get_min_key() < min_key) {
-			min_key = sstables[level].at(i)->get_min_key();
-		}
-		if (tmp_vec.at(i)->get_max_key() > max_key) {
-			max_key = sstables[level].at(i)->get_max_key();
-		}
-	}
-
-	for (size_t i = 0; i < sstables[level + 1].size(); i++) {
-		if (sstables[level + 1].at(i)->get_min_key() > max_key || sstables[level + 1].at(i)->get_max_key() < min_key) {
-			continue;
-		}
-		vec.push_back(sstables[level + 1].at(i));
-	}
-
-	for (size_t i = 0; i < tmp_vec.size(); i++) {
-		tmp_tuples = tmp_vec.at(i)->get_tuples();
-		tmp_stamp = tmp_vec.at(i)->get_stamp();
-		for (size_t j = 0; j < tmp_tuples.size(); j++) {
-			// check if the key is in tuples
-			bool keyExists = check_key(tuples, std::get<0>(tmp_tuples.at(j)));
-			if (!keyExists || tmp_stamp > stamp) {
-				tuples.push_back(tmp_tuples.at(j));
-			}
-		}
-		if (tmp_stamp > stamp) {
-			stamp = tmp_stamp;
-		}
-	}
-	for (size_t i = 0; i < tmp_vec.size(); i++) {
-		rmfile(tmp_vec.at(i)->get_path());
-		delete tmp_vec.at(i);
-	}
-
-	sort_tuples(tuples);
 	size_t batchSize = 408;
-    size_t start = 0;
-
-    while (start < tuples.size()) {
+    for (size_t start = 0; start < tuples.size(); start += batchSize) {
         size_t end = std::min(start + batchSize, tuples.size());
-        tmp_tuples.clear();
-        tmp_tuples.insert(tmp_tuples.end(), tuples.begin() + start, tuples.begin() + end);
-        std::cout << "Processed a batch of " << tmp_tuples.size() << " elements." << std::endl;
-        start = end;
-		std::string new_filePath = dir + "/level-0/" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".sst";
-		SStable *sstable = new SStable(max_stamp, new_filePath, tmp_tuples);
-		sstables[level + 1].push_back(sstable);
+        std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> tmp_tuples(tuples.begin() + start, tuples.begin() + end);
+        std::string newFilePath = dir + "/level-" + std::to_string(level + 1) + "/" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".sst";
+        SStable* newSSTable = new SStable(stamp, newFilePath, tmp_tuples);
+        sstables[level + 1].push_back(newSSTable);
+    }
+
+	for (auto* sstable : vec) {
+        rmfile(sstable->get_path());
+        delete sstable;
     }
 
 	compaction(level + 1);
