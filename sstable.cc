@@ -185,7 +185,7 @@ std::string SStable::get(uint64_t key, std::string vlog) {
 }
 
 std::string SStable::get_without_bloomfilter(uint64_t key, std::string vlog) {
-    std::tuple <uint64_t, uint64_t, uint32_t> tuple = get_tuple(key);
+    std::tuple <uint64_t, uint64_t, uint32_t> tuple = get_tuple_without_bloomfilter(key);
     if (tuple != std::make_tuple(0, 0, 0)) {
         std::fstream infile(vlog, std::ios::in | std::ios::binary);
         uint64_t offset = std::get<1>(tuple);

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdint>
 #include <string>
+#include <numeric>
 #include <assert.h>
 
 #include "test.h"
@@ -9,13 +10,12 @@ class PerformanceTest : public Test
 {
 private:
 	const uint64_t SIMPLE_TEST_MAX = 512;
-	const uint64_t LARGE_TEST_MAX = 1024 * 2;
-	const uint64_t GC_TEST_MAX = 1024 * 48;
+    const uint64_t MIDDLE_TEST_MAX = 1024 * 12;
+	const uint64_t LARGE_TEST_MAX = 1024 * 48;
 
 	void regular_test(uint64_t max)
 	{
 		uint64_t i;
-        uint64_t key_size = sizeof(uint64_t);
         std::vector<double> put_latencies, get_latencies, del_latencies, scan_latencies;
         std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 
@@ -39,7 +39,7 @@ private:
         for (i = 0; i < max; ++i)
         {
             start = std::chrono::high_resolution_clock::now();
-            store.put(i, std::string(i + 1, 's'));
+            store.put(i, std::string(64, 's'));
             end = std::chrono::high_resolution_clock::now();
             put_latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
         }
@@ -112,12 +112,10 @@ private:
 
 	void cache_test(uint64_t max)
 	{
-		uint64_t i;
-        uint64_t key_size = sizeof(uint64_t);
         std::vector<double> get_latencies, get_without_cache_latencies, get_without_bloomfilter_latencies;
         std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 
-        for (int i = 0; i < max; i++)
+        for (uint64_t i = 0; i < max; i++)
         {
             store.put(i, std::string(i + 1, 's'));
         }
@@ -169,14 +167,27 @@ private:
 
     void compaction_test(uint64_t max)
     {
-        
+        uint64_t i;
+        std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+
+        std::ofstream log_file("compaction_latency.csv");
+        log_file << "key,Latency\n";
+
+        for (i = 0; i < max; ++i)
+        {
+            start = std::chrono::high_resolution_clock::now();
+            store.put(i, std::string(64, 's'));
+            end = std::chrono::high_resolution_clock::now();
+            log_file << i << "," << std::chrono::duration<double, std::micro>(end - start).count() << "\n";
+        }
+
+        log_file.close();
     }
 
     void bloomfilter_test(uint64_t max)
     {
         std::cout << "Bloomfilter Size: " << bloomfilter_size << "bytes" << std::endl;
         uint64_t i;
-        uint64_t key_size = sizeof(uint64_t);
         std::vector<double> put_latencies, get_latencies;
         std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 
@@ -240,6 +251,39 @@ private:
         std::cout << "GET throughput: " << throughput(get_latencies) << " ops/sec\n";
     }
 
+    void total_regular_test() {
+        store.reset();
+        std::cout << "[Regular Test]" << std::endl;
+		regular_test(SIMPLE_TEST_MAX);
+
+        store.reset();
+
+        std::cout << "[Middle Regular Test]" << std::endl;
+        regular_test(MIDDLE_TEST_MAX);
+        store.reset();
+
+        std::cout << "[Large Regular Test]" << std::endl;
+        regular_test(LARGE_TEST_MAX);
+    }
+
+    void total_cache_test() {
+        store.reset();
+        std::cout << std::endl << "[Cache Test]" << std::endl;
+        cache_test(MIDDLE_TEST_MAX);
+    }
+
+    void total_compaction_test() {
+        store.reset();
+        std::cout << std::endl << "[Compaction Test]" << std::endl;
+        compaction_test(LARGE_TEST_MAX);
+    }
+
+    void total_bloomfilter_test() {
+        store.reset();
+        std::cout << std::endl << "[Bloomfilter Test]" << std::endl;
+        bloomfilter_test(LARGE_TEST_MAX);
+    }
+
 public:
 	PerformanceTest(const std::string &dir, const std::string &vlog, bool v = true) : Test(dir, vlog, v)
 	{
@@ -249,35 +293,13 @@ public:
 	{
 		std::cout << "KVStore Performance Test" << std::endl;
 
-		store.reset();
+        total_regular_test();
 
-		// std::cout << "[Regular Test]" << std::endl;
-		// regular_test(SIMPLE_TEST_MAX);
+		total_cache_test();
 
-        // store.reset();
+        total_compaction_test();
 
-        // std::cout << "[Large Regular Test]" << std::endl;
-        // regular_test(LARGE_TEST_MAX);
-
-		// store.reset();
-
-		// std::cout << "[Cache Test]" << std::endl;
-		// cache_test(SIMPLE_TEST_MAX);
-
-		// store.reset();
-
-        // std::cout << "[Large Cache Test]" << std::endl;
-        // cache_test(LARGE_TEST_MAX);
-
-        // store.reset();
-
-		// std::cout << "[Compaction Test]" << std::endl;
-        // compaction_test(LARGE_TEST_MAX);
-
-        store.reset();
-
-        std::cout << "[Bloomfilter Test]" << std::endl;
-        bloomfilter_test(LARGE_TEST_MAX);
+        total_bloomfilter_test();
 	}
 };
 

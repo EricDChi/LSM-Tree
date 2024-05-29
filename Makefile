@@ -11,4 +11,4 @@ persistence: bloomfilter.o memtable.o skiplist.o sstable.o kvstore.o persistence
 performance: bloomfilter.o memtable.o skiplist.o sstable.o kvstore.o performance.o
 
 clean:
-	-rm -f correctness persistence *.o
+	-rm -f correctness persistence performance *.o

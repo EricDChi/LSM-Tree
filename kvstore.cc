@@ -183,7 +183,6 @@ std::string KVStore::get_without_cache(uint64_t key)
 			continue;
 		}
         
-		int level = std::stoi(vec_level.at(i).substr(6));
         scanDir(dir + "/" + vec_level.at(i), vec_sstable);
 
         for (size_t j = 0; j < vec_sstable.size(); j++) {
@@ -491,7 +490,7 @@ void KVStore::compaction(uint32_t level)
 		mkdir(dir + "/level-" + std::to_string(level + 1));
 	}
 
-	size_t batchSize = 408;
+	size_t batchSize = (max_sst_size - header_size - bloomfilter_size) / 20;
     for (size_t start = 0; start < tuples.size(); start += batchSize) {
         size_t end = std::min(start + batchSize, tuples.size());
         std::vector<std::tuple<uint64_t, uint64_t, uint32_t>> tmp_tuples(tuples.begin() + start, tuples.begin() + end);
@@ -507,4 +506,3 @@ void KVStore::compaction(uint32_t level)
 
 	compaction(level + 1);
 }
-
